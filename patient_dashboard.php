@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Fetch all appointments for current patient
-$query = "SELECT a.id as appointment_id, a.date, a.time_slot, a.status, a.created_at, 
+$query = "SELECT a.id as appointment_id, a.date, a.time_slot, a.status, a.meeting_link, a.created_at, 
                  u.name as doctor_name, d.specialty, d.fee, d.phone as doctor_phone
           FROM appointments a 
           JOIN doctors d ON a.doctor_id = d.id 
@@ -203,9 +203,14 @@ require_once 'header.php';
                                             Pending
                                         </span>
                                     <?php elseif ($app['status'] === 'confirmed'): ?>
+                                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                                            Confirmed
+                                        </span>
+                                    <?php elseif ($app['status'] === 'completed'): ?>
                                         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                            Confirmed
+                                            Completed
                                         </span>
                                     <?php else: ?>
                                         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200">
@@ -215,9 +220,16 @@ require_once 'header.php';
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Action (Cancel) -->
+                                <!-- Action (Cancel / Join Call) -->
                                 <td class="px-6 py-4 text-right whitespace-nowrap">
-                                    <?php if ($app['status'] === 'pending'): ?>
+                                    <?php if ($app['status'] === 'confirmed' && !empty($app['meeting_link'])): ?>
+                                        <a href="<?= htmlspecialchars($app['meeting_link']) ?>" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm shadow-emerald-200">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                            </svg>
+                                            Join Video Call
+                                        </a>
+                                    <?php elseif ($app['status'] === 'pending'): ?>
                                         <form action="patient_dashboard.php" method="POST" onsubmit="return confirm('Are you sure you want to cancel this pending appointment?');" class="inline">
                                             <input type="hidden" name="action" value="cancel_appointment">
                                             <input type="hidden" name="appointment_id" value="<?= $app['appointment_id'] ?>">

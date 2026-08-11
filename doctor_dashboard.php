@@ -59,12 +59,23 @@ $action_err = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_status') {
     $appointment_id = (int)($_POST['appointment_id'] ?? 0);
     $new_status = trim($_POST['new_status'] ?? '');
+    $meeting_link = trim($_POST['meeting_link'] ?? '');
 
     $allowed_statuses = ['confirmed', 'completed', 'cancelled'];
 
     if ($appointment_id > 0 && in_array($new_status, $allowed_statuses)) {
-        $update_stmt = $conn->prepare("UPDATE appointments SET status = ? WHERE id = ? AND doctor_id = ?");
-        $update_stmt->bind_param("sii", $new_status, $appointment_id, $doctor_id);
+        if (!empty($meeting_link) && !preg_match("~^(?:f|ht)tps?://~i", $meeting_link)) {
+            $meeting_link = "https://" . $meeting_link;
+        }
+        $meeting_link_val = !empty($meeting_link) ? $meeting_link : null;
+
+        if (isset($_POST['meeting_link'])) {
+            $update_stmt = $conn->prepare("UPDATE appointments SET status = ?, meeting_link = ? WHERE id = ? AND doctor_id = ?");
+            $update_stmt->bind_param("ssii", $new_status, $meeting_link_val, $appointment_id, $doctor_id);
+        } else {
+            $update_stmt = $conn->prepare("UPDATE appointments SET status = ? WHERE id = ? AND doctor_id = ?");
+            $update_stmt->bind_param("sii", $new_status, $appointment_id, $doctor_id);
+        }
         
         if ($update_stmt->execute() && $update_stmt->affected_rows > 0) {
             $action_msg = "Appointment #{$appointment_id} status updated to '" . ucfirst($new_status) . "'.";
@@ -76,7 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Fetch assigned appointments for this doctor
-$query = "SELECT a.id as appointment_id, a.date, a.time_slot, a.status, a.created_at, 
+$query = "SELECT a.id as appointment_id, a.date, a.time_slot, a.status, a.meeting_link, a.created_at, 
                  u.name as patient_name, u.email as patient_email 
           FROM appointments a 
           JOIN users u ON a.patient_id = u.id 
@@ -231,16 +242,17 @@ require_once 'header.php';
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Actions -->
+                                 <!-- Actions -->
                                 <td class="px-6 py-4 text-right whitespace-nowrap">
                                     <div class="flex items-center justify-end gap-2">
                                         <?php if ($app['status'] === 'pending'): ?>
-                                            <!-- Confirm Button -->
-                                            <form action="doctor_dashboard.php" method="POST" class="inline">
+                                            <!-- Confirm Form with Telehealth Link Input -->
+                                            <form action="doctor_dashboard.php" method="POST" class="inline-flex items-center gap-2">
                                                 <input type="hidden" name="action" value="update_status">
                                                 <input type="hidden" name="appointment_id" value="<?= $app['appointment_id'] ?>">
                                                 <input type="hidden" name="new_status" value="confirmed">
-                                                <button type="submit" class="px-3 py-1.5 text-xs font-bold text-white bg-[#1E3A8A] hover:bg-[#172e6e] rounded-lg transition-colors shadow-sm">
+                                                <input type="url" name="meeting_link" placeholder="Meet/Zoom URL (optional)" class="px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-44 sm:w-56" title="Paste Google Meet or Zoom link">
+                                                <button type="submit" class="px-3 py-1.5 text-xs font-bold text-white bg-[#1E3A8A] hover:bg-[#172e6e] rounded-lg transition-colors shadow-sm whitespace-nowrap">
                                                     Confirm
                                                 </button>
                                             </form>
@@ -254,6 +266,14 @@ require_once 'header.php';
                                                 </button>
                                             </form>
                                         <?php elseif ($app['status'] === 'confirmed'): ?>
+                                            <?php if (!empty($app['meeting_link'])): ?>
+                                                <a href="<?= htmlspecialchars($app['meeting_link']) ?>" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors mr-1">
+                                                    <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                                    </svg>
+                                                    View Link
+                                                </a>
+                                            <?php endif; ?>
                                             <!-- Complete Button -->
                                             <form action="doctor_dashboard.php" method="POST" class="inline">
                                                 <input type="hidden" name="action" value="update_status">
