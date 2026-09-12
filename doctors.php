@@ -30,23 +30,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         } elseif (strtotime($date) < strtotime(date('Y-m-d'))) {
             $booking_error = "Appointment date cannot be in the past.";
         } else {
-            // Check if doctor exists
-            $check_doc = $conn->prepare("SELECT id FROM doctors WHERE id = ?");
+            // Check if doctor exists and fetch available days
+            $check_doc = $conn->prepare("SELECT id, available_days FROM doctors WHERE id = ?");
             $check_doc->bind_param("i", $doctor_id);
             $check_doc->execute();
-            if ($check_doc->get_result()->num_rows === 0) {
+            $doc_res = $check_doc->get_result();
+
+            if ($doc_res->num_rows === 0) {
                 $booking_error = "Selected doctor does not exist.";
             } else {
-                // Insert appointment into database
-                $stmt = $conn->prepare("INSERT INTO appointments (patient_id, doctor_id, date, time_slot, status) VALUES (?, ?, ?, ?, 'pending')");
-                $stmt->bind_param("iiss", $patient_id, $doctor_id, $date, $time_slot);
-                
-                if ($stmt->execute()) {
-                    $booking_success = "Your appointment has been successfully requested! You can view its status on your Patient Dashboard.";
+                $doc_info = $doc_res->fetch_assoc();
+                $raw_available_days = $doc_info['available_days'] ?? '';
+
+                // Determine the day name of the selected appointment date (e.g. "Monday")
+                $booking_day_name = date('l', strtotime($date));
+
+                // Parse available days into array
+                $available_days_array = array_map('trim', explode(',', $raw_available_days));
+                $available_days_lower = array_map('strtolower', array_filter($available_days_array));
+
+                if (!empty($raw_available_days) && !in_array(strtolower($booking_day_name), $available_days_lower)) {
+                    $formatted_available = implode(', ', array_filter($available_days_array));
+                    $booking_error = "Selected doctor is not available on {$booking_day_name}s. Please choose from their available days: {$formatted_available}.";
                 } else {
-                    $booking_error = "Failed to submit booking request. Please try again.";
+                    // Insert appointment into database
+                    $stmt = $conn->prepare("INSERT INTO appointments (patient_id, doctor_id, date, time_slot, status) VALUES (?, ?, ?, ?, 'pending')");
+                    $stmt->bind_param("iiss", $patient_id, $doctor_id, $date, $time_slot);
+                    
+                    if ($stmt->execute()) {
+                        $booking_success = "Your appointment has been successfully requested! You can view its status on your Patient Dashboard.";
+                    } else {
+                        $booking_error = "Failed to submit booking request. Please try again.";
+                    }
+                    $stmt->close();
                 }
-                $stmt->close();
             }
             $check_doc->close();
         }
@@ -103,6 +120,10 @@ $time_slots = [
 $page_title = "Book a Doctor";
 require_once 'header.php';
 ?>
+
+<!-- Flatpickr Datepicker CDN -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
 <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full">
 
@@ -214,7 +235,7 @@ require_once 'header.php';
                     <!-- Action Button -->
                     <div class="mt-6 pt-4 border-t border-slate-100">
                         <button type="button" 
-                            onclick="openBookingModal(<?= $doc['doctor_id'] ?>, '<?= htmlspecialchars(addslashes($doc['doctor_name'])) ?>', '<?= htmlspecialchars(addslashes($doc['specialty'])) ?>', '<?= number_format($doc['fee'], 2) ?>')"
+                            onclick="openBookingModal(<?= $doc['doctor_id'] ?>, '<?= htmlspecialchars(addslashes($doc['doctor_name'])) ?>', '<?= htmlspecialchars(addslashes($doc['specialty'])) ?>', '<?= number_format($doc['fee'], 2) ?>', '<?= htmlspecialchars(addslashes($doc['available_days'])) ?>')"
                             class="w-full text-center px-4 py-2.5 bg-[#1E3A8A] hover:bg-[#172e6e] active:bg-[#0f1d46] text-white text-sm font-medium rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
@@ -276,16 +297,28 @@ require_once 'header.php';
                 </div>
             <?php endif; ?>
 
-            <!-- Fee Display -->
-            <div class="bg-blue-50/60 border border-blue-100 rounded-xl p-3.5 flex items-center justify-between text-xs">
-                <span class="text-slate-600 font-medium">Consultation Fee</span>
-                <span class="font-bold text-[#1E3A8A] text-sm" id="modal-doctor-fee">$0.00</span>
+            <!-- Doctor Fee & Available Days Display -->
+            <div class="space-y-2">
+                <div class="bg-blue-50/60 border border-blue-100 rounded-xl p-3.5 flex items-center justify-between text-xs">
+                    <span class="text-slate-600 font-medium">Consultation Fee</span>
+                    <span class="font-bold text-[#1E3A8A] text-sm" id="modal-doctor-fee">$0.00</span>
+                </div>
+                <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between text-xs">
+                    <span class="text-slate-600 font-medium">Doctor Schedule</span>
+                    <span class="font-semibold text-[#1E3A8A] text-right truncate max-w-[200px]" id="modal-available-days-badge">Monday - Friday</span>
+                </div>
             </div>
 
             <!-- Date Picker -->
             <div>
                 <label for="booking-date" class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">Select Date</label>
-                <input type="date" id="booking-date" name="date" required min="<?= date('Y-m-d') ?>" value="<?= date('Y-m-d', strtotime('+1 day')) ?>" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]">
+                <input type="text" id="booking-date" name="date" required placeholder="Select an available date..." class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]">
+                <div id="date-error-msg" class="hidden mt-1.5 text-xs text-red-600 font-medium flex items-start gap-1.5 bg-red-50 p-2.5 rounded-lg border border-red-200">
+                    <svg class="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span id="date-error-text">Doctor is not available on this day.</span>
+                </div>
             </div>
 
             <!-- Time Slot Selector -->
@@ -303,7 +336,7 @@ require_once 'header.php';
                 <button type="button" onclick="closeBookingModal()" class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
                     Cancel
                 </button>
-                <button type="submit" class="px-5 py-2.5 bg-[#1E3A8A] hover:bg-[#172e6e] text-white text-xs font-bold rounded-xl shadow-sm transition-colors">
+                <button type="submit" id="btn-submit-booking" class="px-5 py-2.5 bg-[#1E3A8A] hover:bg-[#172e6e] text-white text-xs font-bold rounded-xl shadow-sm transition-colors">
                     Confirm & Request Booking
                 </button>
             </div>
@@ -313,12 +346,88 @@ require_once 'header.php';
 </div>
 
 <script>
-    function openBookingModal(doctorId, doctorName, specialty, fee) {
+    const dayNameToIndex = {
+        'sunday': 0, 'sun': 0,
+        'monday': 1, 'mon': 1,
+        'tuesday': 2, 'tue': 2,
+        'wednesday': 3, 'wed': 3,
+        'thursday': 4, 'thu': 4,
+        'friday': 5, 'fri': 5,
+        'saturday': 6, 'sat': 6
+    };
+
+    let bookingDatePicker = null;
+
+    function openBookingModal(doctorId, doctorName, specialty, fee, availableDaysStr) {
         document.getElementById('modal-doctor-id').value = doctorId;
         document.getElementById('modal-doctor-name').textContent = 'Book with ' + doctorName;
         document.getElementById('modal-doctor-specialty').textContent = specialty;
         document.getElementById('modal-doctor-fee').textContent = '$' + fee;
+
+        const daysDisplay = (availableDaysStr && availableDaysStr.trim() !== '') ? availableDaysStr : 'Monday, Tuesday, Wednesday, Thursday, Friday';
+        document.getElementById('modal-available-days-badge').textContent = daysDisplay;
+
+        // Parse allowed weekday indices (0 = Sun, 1 = Mon, ..., 6 = Sat)
+        const daysArray = daysDisplay.split(',').map(d => d.trim().toLowerCase());
+        const allowedIndices = daysArray.map(name => dayNameToIndex[name]).filter(idx => idx !== undefined);
+
+        hideDateError();
+
+        // Destroy previous Flatpickr instance if active
+        if (bookingDatePicker) {
+            bookingDatePicker.destroy();
+        }
+
+        // Initialize Flatpickr on date input matching doctor's available weekdays
+        bookingDatePicker = flatpickr("#booking-date", {
+            minDate: "today",
+            dateFormat: "Y-m-d",
+            enable: [
+                function(date) {
+                    if (allowedIndices.length === 0) return true;
+                    return allowedIndices.includes(date.getDay());
+                }
+            ],
+            onChange: function(selectedDates, dateStr, instance) {
+                if (selectedDates.length > 0) {
+                    validateSelectedDate(selectedDates[0], daysArray, daysDisplay);
+                }
+            }
+        });
+
         document.getElementById('booking-modal').classList.remove('hidden');
+    }
+
+    function validateSelectedDate(dateObj, allowedDaysArray, daysDisplay) {
+        if (!dateObj) return;
+        const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const selectedDayName = dayNames[dateObj.getDay()];
+
+        if (allowedDaysArray.length > 0 && !allowedDaysArray.includes(selectedDayName)) {
+            showDateError('Doctor is not available on ' + selectedDayName.charAt(0).toUpperCase() + selectedDayName.slice(1) + 's. Available days: ' + daysDisplay);
+        } else {
+            hideDateError();
+        }
+    }
+
+    function showDateError(msg) {
+        const errBox = document.getElementById('date-error-msg');
+        const errText = document.getElementById('date-error-text');
+        const submitBtn = document.getElementById('btn-submit-booking');
+
+        errText.textContent = msg;
+        errBox.classList.remove('hidden');
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+
+    function hideDateError() {
+        const errBox = document.getElementById('date-error-msg');
+        const submitBtn = document.getElementById('btn-submit-booking');
+
+        errBox.classList.add('hidden');
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
     }
 
     function closeBookingModal() {
@@ -327,3 +436,4 @@ require_once 'header.php';
 </script>
 
 <?php require_once 'footer.php'; ?>
+
