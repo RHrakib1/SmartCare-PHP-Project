@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
     $role = trim($_POST['role'] ?? 'patient');
 
     // Doctor specific fields
@@ -32,12 +33,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         : trim($_POST['available_days_str'] ?? '');
 
     // Validation
-    if (empty($name) || empty($email) || empty($password) || empty($role)) {
+    if (empty($name) || empty($email) || empty($password) || empty($confirm_password) || empty($role)) {
         $error = 'Please fill in all required fields.';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
     } elseif (strlen($password) < 6) {
         $error = 'Password must be at least 6 characters long.';
+    } elseif ($password !== $confirm_password) {
+        $error = 'Password and Confirm Password do not match.';
     } elseif (!in_array($role, ['patient', 'doctor'])) {
         $error = 'Invalid role selected.';
     } elseif ($role === 'doctor' && (empty($specialty) || empty($phone))) {
@@ -78,7 +81,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $conn->commit();
-                $success = 'Account created successfully! You can now log in.';
+
+                // Automatically log in the newly registered user
+                if (session_status() === PHP_SESSION_NONE) {
+                    session_start();
+                }
+                session_regenerate_id(true);
+
+                $_SESSION['user_id']    = $user_id;
+                $_SESSION['user_name']  = $name;
+                $_SESSION['user_email'] = $email;
+                $_SESSION['user_role']  = $role;
+
+                // Redirect directly to home page
+                header("Location: index.php");
+                exit;
             } catch (Exception $e) {
                 $conn->rollback();
                 $error = 'Registration failed due to a system error: ' . $e->getMessage();
@@ -97,25 +114,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, h4, h5, h6 { font-family: 'Plus Jakarta Sans', sans-serif; }
     </style>
 </head>
 <body class="bg-[#F8FAFC] text-slate-800 antialiased min-h-screen flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
 
     <div class="sm:mx-auto sm:w-full sm:max-w-md text-center mb-6">
-        <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[#1E3A8A] text-white shadow-sm mb-3">
+        <a href="index.php" class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[#1E3A8A] text-white shadow-sm mb-3 hover:bg-[#172e6e] transition-colors">
             <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
             </svg>
-        </div>
+        </a>
         <h2 class="text-2xl font-bold tracking-tight text-slate-900">Join SmartCare</h2>
         <p class="text-sm text-slate-500 mt-1">Healthcare appointment management simplified</p>
     </div>
 
     <div class="sm:mx-auto sm:w-full sm:max-w-lg">
-        <div class="bg-white py-8 px-6 shadow-sm border border-slate-200 rounded-2xl sm:px-10">
+        <div class="bg-white py-8 px-6 shadow-sm border border-slate-200/80 rounded-2xl sm:px-10">
 
             <?php if (!empty($error)): ?>
                 <div class="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm flex items-start gap-3">
@@ -179,7 +197,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <!-- Password -->
                 <div>
                     <label for="password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                    <input type="password" id="password" name="password" required minlength="6" placeholder="At least 6 characters" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:border-transparent transition-all">
+                    <div class="relative flex items-center">
+                        <input type="password" id="password" name="password" required minlength="6" placeholder="At least 6 characters" class="w-full pl-3.5 pr-11 py-2.5 border border-slate-300 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:border-transparent transition-all">
+                        <button type="button" onclick="togglePasswordVisibility('password', 'password-eye-icon')" class="absolute right-3 text-slate-400 hover:text-slate-600 focus:outline-none p-1 transition-colors" title="Toggle Password Visibility">
+                            <svg id="password-eye-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Confirm Password -->
+                <div>
+                    <label for="confirm_password" class="block text-sm font-medium text-slate-700 mb-1">Confirm Password</label>
+                    <div class="relative flex items-center">
+                        <input type="password" id="confirm_password" name="confirm_password" required minlength="6" placeholder="Re-enter your password" class="w-full pl-3.5 pr-11 py-2.5 border border-slate-300 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:border-transparent transition-all">
+                        <button type="button" onclick="togglePasswordVisibility('confirm_password', 'confirm-password-eye-icon')" class="absolute right-3 text-slate-400 hover:text-slate-600 focus:outline-none p-1 transition-colors" title="Toggle Confirm Password Visibility">
+                            <svg id="confirm-password-eye-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Doctor Fields (Conditional) -->
@@ -230,6 +270,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 container.classList.add('hidden');
             }
         }
+
+        function togglePasswordVisibility(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(iconId);
+            if (!input || !icon) return;
+
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a10.018 10.018 0 013.122-.963c4.478 0 8.268 2.943 9.542 7a9.97 9.97 0 01-2.518 3.864M15 12a3 3 0 11-6 0 3 3 0 016 0zM3 3l18 18"/>';
+            } else {
+                input.type = 'password';
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>';
+            }
+        }
     </script>
 </body>
 </html>
+
