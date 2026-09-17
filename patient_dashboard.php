@@ -35,6 +35,16 @@ $patient_email = $_SESSION['user_email'] ?? '';
 $action_message = '';
 $action_error = '';
 
+// Check session flash messages (e.g. from payment.php redirect)
+if (isset($_SESSION['action_message'])) {
+    $action_message = $_SESSION['action_message'];
+    unset($_SESSION['action_message']);
+}
+if (isset($_SESSION['action_error'])) {
+    $action_error = $_SESSION['action_error'];
+    unset($_SESSION['action_error']);
+}
+
 // Handle Cancel Appointment Action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cancel_appointment') {
     $appointment_id = (int)($_POST['appointment_id'] ?? 0);
@@ -52,12 +62,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Fetch all appointments for current patient
+// Fetch all appointments for current patient (including payment and prescription fields)
 $query = "SELECT a.id as appointment_id, a.date, a.time_slot, a.status, a.meeting_link, a.created_at, 
-                 u.name as doctor_name, d.specialty, d.fee, d.phone as doctor_phone
+                 a.payment_status, a.trx_id,
+                 u.name as doctor_name, d.specialty, d.fee, d.phone as doctor_phone,
+                 pr.id as prescription_id
           FROM appointments a 
           JOIN doctors d ON a.doctor_id = d.id 
           JOIN users u ON d.user_id = u.id 
+          LEFT JOIN prescriptions pr ON a.id = pr.appointment_id
           WHERE a.patient_id = ? 
           ORDER BY a.date DESC, a.created_at DESC";
 
@@ -159,6 +172,7 @@ require_once 'header.php';
                             <th class="px-6 py-3.5">Date</th>
                             <th class="px-6 py-3.5">Time Slot</th>
                             <th class="px-6 py-3.5">Status</th>
+                            <th class="px-6 py-3.5">Payment</th>
                             <th class="px-6 py-3.5 text-right">Action</th>
                         </tr>
                     </thead>
@@ -220,26 +234,61 @@ require_once 'header.php';
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Action (Cancel / Join Call) -->
-                                <td class="px-6 py-4 text-right whitespace-nowrap">
-                                    <?php if ($app['status'] === 'confirmed' && !empty($app['meeting_link'])): ?>
-                                        <a href="<?= htmlspecialchars($app['meeting_link']) ?>" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm shadow-emerald-200">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                <!-- Payment Status Badge / Action -->
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <?php 
+                                    $pay_status = $app['payment_status'] ?? 'pending';
+                                    if ($pay_status === 'paid'): 
+                                    ?>
+                                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" title="TrxID: <?= htmlspecialchars($app['trx_id'] ?? '') ?>">
+                                            <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
                                             </svg>
-                                            Join Video Call
+                                            Paid <?= !empty($app['trx_id']) ? '(' . htmlspecialchars($app['trx_id']) . ')' : '' ?>
+                                        </span>
+                                    <?php elseif ($app['status'] !== 'cancelled'): ?>
+                                        <a href="payment.php?appointment_id=<?= $app['appointment_id'] ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1E3A8A] hover:bg-[#172e6e] text-white text-xs font-semibold rounded-lg transition-all shadow-sm">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
+                                            </svg>
+                                            Pay ৳<?= number_format($app['fee'], 0) ?>
                                         </a>
-                                    <?php elseif ($app['status'] === 'pending'): ?>
-                                        <form action="patient_dashboard.php" method="POST" onsubmit="return confirm('Are you sure you want to cancel this pending appointment?');" class="inline">
-                                            <input type="hidden" name="action" value="cancel_appointment">
-                                            <input type="hidden" name="appointment_id" value="<?= $app['appointment_id'] ?>">
-                                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors">
-                                                Cancel
-                                            </button>
-                                        </form>
                                     <?php else: ?>
-                                        <span class="text-xs text-slate-400 italic">No action</span>
+                                        <span class="text-xs text-slate-400 italic">Unpaid</span>
                                     <?php endif; ?>
+                                </td>
+
+                                 <!-- Action (Cancel / Join Call / View Rx) -->
+                                <td class="px-6 py-4 text-right whitespace-nowrap">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <?php if (!empty($app['prescription_id'])): ?>
+                                            <a href="view_prescription.php?id=<?= $app['prescription_id'] ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold rounded-lg transition-colors">
+                                                <svg class="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                                </svg>
+                                                View Rx
+                                            </a>
+                                        <?php endif; ?>
+
+                                        <?php if ($app['status'] === 'confirmed' && !empty($app['meeting_link'])): ?>
+                                            <a href="<?= htmlspecialchars($app['meeting_link']) ?>" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm shadow-emerald-200">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                                </svg>
+                                                Join Video Call
+                                            </a>
+                                        <?php elseif ($app['status'] === 'pending'): ?>
+                                            <form action="patient_dashboard.php" method="POST" onsubmit="return confirm('Are you sure you want to cancel this pending appointment?');" class="inline">
+                                                <input type="hidden" name="action" value="cancel_appointment">
+                                                <input type="hidden" name="appointment_id" value="<?= $app['appointment_id'] ?>">
+                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors">
+                                                    Cancel
+                                                </button>
+                                            </form>
+                                        <?php elseif (empty($app['prescription_id'])): ?>
+                                            <span class="text-xs text-slate-400 italic">No action</span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

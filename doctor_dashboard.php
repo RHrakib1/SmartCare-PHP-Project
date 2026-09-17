@@ -64,34 +64,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $allowed_statuses = ['confirmed', 'completed', 'cancelled'];
 
     if ($appointment_id > 0 && in_array($new_status, $allowed_statuses)) {
-        if (!empty($meeting_link) && !preg_match("~^(?:f|ht)tps?://~i", $meeting_link)) {
-            $meeting_link = "https://" . $meeting_link;
-        }
-        $meeting_link_val = !empty($meeting_link) ? $meeting_link : null;
+        // Backend Validation: Meeting link is mandatory when confirming appointment
+        if ($new_status === 'confirmed' && empty($meeting_link)) {
+            $action_err = "Meeting link is required to confirm appointment.";
+        } else {
+            if (!empty($meeting_link) && !preg_match("~^(?:f|ht)tps?://~i", $meeting_link)) {
+                $meeting_link = "https://" . $meeting_link;
+            }
+            $meeting_link_val = !empty($meeting_link) ? $meeting_link : null;
 
-        if (isset($_POST['meeting_link'])) {
-            $update_stmt = $conn->prepare("UPDATE appointments SET status = ?, meeting_link = ? WHERE id = ? AND doctor_id = ?");
-            $update_stmt->bind_param("ssii", $new_status, $meeting_link_val, $appointment_id, $doctor_id);
-        } else {
-            $update_stmt = $conn->prepare("UPDATE appointments SET status = ? WHERE id = ? AND doctor_id = ?");
-            $update_stmt->bind_param("sii", $new_status, $appointment_id, $doctor_id);
+            if ($new_status === 'confirmed' || isset($_POST['meeting_link'])) {
+                $update_stmt = $conn->prepare("UPDATE appointments SET status = ?, meeting_link = ? WHERE id = ? AND doctor_id = ?");
+                $update_stmt->bind_param("ssii", $new_status, $meeting_link_val, $appointment_id, $doctor_id);
+            } else {
+                $update_stmt = $conn->prepare("UPDATE appointments SET status = ? WHERE id = ? AND doctor_id = ?");
+                $update_stmt->bind_param("sii", $new_status, $appointment_id, $doctor_id);
+            }
+            
+            if ($update_stmt->execute() && $update_stmt->affected_rows > 0) {
+                $action_msg = "Appointment #{$appointment_id} has been " . ($new_status === 'confirmed' ? 'confirmed with meeting link' : ucfirst($new_status)) . ".";
+
+                // Send In-App Notification to Patient if confirmed
+                if ($new_status === 'confirmed') {
+                    $appt_info_stmt = $conn->prepare("SELECT patient_id FROM appointments WHERE id = ?");
+                    $appt_info_stmt->bind_param("i", $appointment_id);
+                    $appt_info_stmt->execute();
+                    $appt_info_res = $appt_info_stmt->get_result()->fetch_assoc();
+                    $appt_info_stmt->close();
+
+                    if ($appt_info_res) {
+                        $patient_user_id = $appt_info_res['patient_id'];
+                        $notif_msg = "Your appointment (#{$appointment_id}) with Dr. {$doctor_name} has been confirmed. Meeting link has been added.";
+
+                        @$conn->query("CREATE TABLE IF NOT EXISTS `notifications` (`id` INT AUTO_INCREMENT PRIMARY KEY, `user_id` INT NOT NULL, `message` TEXT NOT NULL, `is_read` TINYINT(1) NOT NULL DEFAULT 0, `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                        $notif_stmt = $conn->prepare("INSERT INTO notifications (user_id, message) VALUES (?, ?)");
+                        $notif_stmt->bind_param("is", $patient_user_id, $notif_msg);
+                        $notif_stmt->execute();
+                        $notif_stmt->close();
+                    }
+                }
+            } else {
+                $action_err = "Unable to update appointment status.";
+            }
+            $update_stmt->close();
         }
-        
-        if ($update_stmt->execute() && $update_stmt->affected_rows > 0) {
-            $action_msg = "Appointment #{$appointment_id} status updated to '" . ucfirst($new_status) . "'.";
-        } else {
-            $action_err = "Unable to update appointment status.";
-        }
-        $update_stmt->close();
     }
 }
 
-// Fetch assigned appointments for this doctor
-$query = "SELECT a.id as appointment_id, a.date, a.time_slot, a.status, a.meeting_link, a.created_at, 
-                 u.name as patient_name, u.email as patient_email 
+// Fetch assigned appointments for this doctor (Only Pending/Confirmed AND Paid)
+$query = "SELECT a.id as appointment_id, a.date, a.time_slot, a.status, a.payment_status, a.trx_id, a.meeting_link, a.created_at, 
+                 u.name as patient_name, u.email as patient_email,
+                 pr.id as prescription_id
           FROM appointments a 
           JOIN users u ON a.patient_id = u.id 
+          LEFT JOIN prescriptions pr ON a.id = pr.appointment_id
           WHERE a.doctor_id = ? 
+            AND a.status IN ('pending', 'confirmed')
+            AND a.payment_status = 'paid'
           ORDER BY a.date ASC, a.created_at DESC";
 
 $stmt = $conn->prepare($query);
@@ -130,6 +160,14 @@ require_once 'header.php';
             </div>
             <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Doctor Portal</h1>
             <p class="text-slate-500 text-sm mt-0.5">Welcome, Dr. <?= htmlspecialchars($doctor_name) ?> (<?= htmlspecialchars($specialty) ?>)</p>
+        </div>
+        <div>
+            <a href="edit_doctor_profile.php" class="inline-flex items-center gap-2 px-4 py-2.5 bg-[#1E3A8A] hover:bg-[#172e6e] text-white text-xs font-semibold rounded-xl transition-colors shadow-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                </svg>
+                Edit Profile
+            </a>
         </div>
     </div>
 
@@ -246,16 +284,16 @@ require_once 'header.php';
                                 <td class="px-6 py-4 text-right whitespace-nowrap">
                                     <div class="flex items-center justify-end gap-2">
                                         <?php if ($app['status'] === 'pending'): ?>
-                                            <!-- Confirm Form with Telehealth Link Input -->
-                                            <form action="doctor_dashboard.php" method="POST" class="inline-flex items-center gap-2">
-                                                <input type="hidden" name="action" value="update_status">
-                                                <input type="hidden" name="appointment_id" value="<?= $app['appointment_id'] ?>">
-                                                <input type="hidden" name="new_status" value="confirmed">
-                                                <input type="url" name="meeting_link" placeholder="Meet/Zoom URL (optional)" class="px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-44 sm:w-56" title="Paste Google Meet or Zoom link">
-                                                <button type="submit" class="px-3 py-1.5 text-xs font-bold text-white bg-[#1E3A8A] hover:bg-[#172e6e] rounded-lg transition-colors shadow-sm whitespace-nowrap">
-                                                    Confirm
-                                                </button>
-                                            </form>
+                                             <!-- Confirm Form with Mandatory Telehealth Link Input -->
+                                             <form action="doctor_dashboard.php" method="POST" class="inline-flex items-center gap-2">
+                                                 <input type="hidden" name="action" value="update_status">
+                                                 <input type="hidden" name="appointment_id" value="<?= $app['appointment_id'] ?>">
+                                                 <input type="hidden" name="new_status" value="confirmed">
+                                                 <input type="url" name="meeting_link" placeholder="Google Meet or Zoom URL *" required class="px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 sm:w-60" title="Meeting link is required to confirm appointment">
+                                                 <button type="submit" class="px-3 py-1.5 text-xs font-bold text-white bg-[#1E3A8A] hover:bg-[#172e6e] rounded-lg transition-colors shadow-sm whitespace-nowrap">
+                                                     Confirm
+                                                 </button>
+                                             </form>
                                             <!-- Cancel Button -->
                                             <form action="doctor_dashboard.php" method="POST" onsubmit="return confirm('Decline/cancel this appointment?');" class="inline">
                                                 <input type="hidden" name="action" value="update_status">
@@ -265,27 +303,39 @@ require_once 'header.php';
                                                     Decline
                                                 </button>
                                             </form>
-                                        <?php elseif ($app['status'] === 'confirmed'): ?>
-                                            <?php if (!empty($app['meeting_link'])): ?>
-                                                <a href="<?= htmlspecialchars($app['meeting_link']) ?>" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors mr-1">
-                                                    <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                                                    </svg>
-                                                    View Link
-                                                </a>
-                                            <?php endif; ?>
-                                            <!-- Complete Button -->
-                                            <form action="doctor_dashboard.php" method="POST" class="inline">
-                                                <input type="hidden" name="action" value="update_status">
-                                                <input type="hidden" name="appointment_id" value="<?= $app['appointment_id'] ?>">
-                                                <input type="hidden" name="new_status" value="completed">
-                                                <button type="submit" class="px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm">
-                                                    Mark Complete
-                                                </button>
-                                            </form>
-                                        <?php else: ?>
-                                            <span class="text-xs text-slate-400 italic">No action needed</span>
-                                        <?php endif; ?>
+                                         <?php elseif ($app['status'] === 'confirmed'): ?>
+                                             <?php if (!empty($app['meeting_link'])): ?>
+                                                 <a href="<?= htmlspecialchars($app['meeting_link']) ?>" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors">
+                                                     <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                                     </svg>
+                                                     Call Link
+                                                 </a>
+                                             <?php endif; ?>
+                                             
+                                             <!-- Write Rx Button -->
+                                             <a href="add_prescription.php?appointment_id=<?= $app['appointment_id'] ?>" class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors shadow-sm">
+                                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                                 </svg>
+                                                 <?= !empty($app['prescription_id']) ? 'Edit Rx' : 'Write Rx' ?>
+                                             </a>
+                                         <?php elseif ($app['status'] === 'completed'): ?>
+                                             <?php if (!empty($app['prescription_id'])): ?>
+                                                 <a href="view_prescription.php?id=<?= $app['prescription_id'] ?>" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors">
+                                                     <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                                     </svg>
+                                                     View Rx
+                                                 </a>
+                                             <?php else: ?>
+                                                 <a href="add_prescription.php?appointment_id=<?= $app['appointment_id'] ?>" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors shadow-sm">
+                                                     Write Rx
+                                                 </a>
+                                             <?php endif; ?>
+                                         <?php else: ?>
+                                             <span class="text-xs text-slate-400 italic">No action</span>
+                                         <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>

@@ -58,7 +58,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $stmt->bind_param("iiss", $patient_id, $doctor_id, $date, $time_slot);
                     
                     if ($stmt->execute()) {
-                        $booking_success = "Your appointment has been successfully requested! You can view its status on your Patient Dashboard.";
+                        $new_app_id = $conn->insert_id;
+                        $booking_success = "Your appointment has been successfully requested! <a href='payment.php?appointment_id={$new_app_id}' class='underline font-bold text-emerald-900 hover:text-emerald-950 ml-1'>Proceed to Pay Consultation Fee &rarr;</a>";
+
+                        // Send In-App Notification to the Doctor
+                        $doc_user_stmt = $conn->prepare("SELECT user_id FROM doctors WHERE id = ?");
+                        $doc_user_stmt->bind_param("i", $doctor_id);
+                        $doc_user_stmt->execute();
+                        $doc_user_res = $doc_user_stmt->get_result()->fetch_assoc();
+                        $doc_user_stmt->close();
+
+                        if ($doc_user_res) {
+                            $doctor_user_id = $doc_user_res['user_id'];
+                            $patient_name = $_SESSION['user_name'] ?? 'A patient';
+                            $notif_msg = "New appointment booking (#{$new_app_id}) from {$patient_name} for {$date} at {$time_slot}.";
+
+                            @$conn->query("CREATE TABLE IF NOT EXISTS `notifications` (`id` INT AUTO_INCREMENT PRIMARY KEY, `user_id` INT NOT NULL, `message` TEXT NOT NULL, `is_read` TINYINT(1) NOT NULL DEFAULT 0, `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                            $notif_stmt = $conn->prepare("INSERT INTO notifications (user_id, message) VALUES (?, ?)");
+                            $notif_stmt->bind_param("is", $doctor_user_id, $notif_msg);
+                            $notif_stmt->execute();
+                            $notif_stmt->close();
+                        }
                     } else {
                         $booking_error = "Failed to submit booking request. Please try again.";
                     }
@@ -154,7 +175,7 @@ require_once 'header.php';
                 </div>
                 <div>
                     <h4 class="font-bold text-sm">Booking Successful</h4>
-                    <p class="text-sm mt-0.5 text-emerald-700"><?= htmlspecialchars($booking_success) ?></p>
+                    <p class="text-sm mt-0.5 text-emerald-700"><?= $booking_success ?></p>
                 </div>
             </div>
             <a href="patient_dashboard.php" class="text-xs font-bold text-emerald-900 underline whitespace-nowrap">Go to Dashboard &rarr;</a>
@@ -207,7 +228,7 @@ require_once 'header.php';
                                 </svg>
                             </div>
                             <span class="text-xs font-bold px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
-                                $<?= number_format($doc['fee'], 2) ?> / Visit
+                                ৳<?= number_format($doc['fee'], 2) ?> / Visit
                             </span>
                         </div>
 
@@ -301,7 +322,7 @@ require_once 'header.php';
             <div class="space-y-2">
                 <div class="bg-blue-50/60 border border-blue-100 rounded-xl p-3.5 flex items-center justify-between text-xs">
                     <span class="text-slate-600 font-medium">Consultation Fee</span>
-                    <span class="font-bold text-[#1E3A8A] text-sm" id="modal-doctor-fee">$0.00</span>
+                    <span class="font-bold text-[#1E3A8A] text-sm" id="modal-doctor-fee">৳0.00</span>
                 </div>
                 <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between text-xs">
                     <span class="text-slate-600 font-medium">Doctor Schedule</span>
@@ -362,7 +383,7 @@ require_once 'header.php';
         document.getElementById('modal-doctor-id').value = doctorId;
         document.getElementById('modal-doctor-name').textContent = 'Book with ' + doctorName;
         document.getElementById('modal-doctor-specialty').textContent = specialty;
-        document.getElementById('modal-doctor-fee').textContent = '$' + fee;
+        document.getElementById('modal-doctor-fee').textContent = '৳' + fee;
 
         const daysDisplay = (availableDaysStr && availableDaysStr.trim() !== '') ? availableDaysStr : 'Monday, Tuesday, Wednesday, Thursday, Friday';
         document.getElementById('modal-available-days-badge').textContent = daysDisplay;

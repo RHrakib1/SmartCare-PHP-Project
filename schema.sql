@@ -1,7 +1,7 @@
 -- SmartCare Database Schema
 -- SQL script to create the database and required tables
 
-CREATE DATABASE IF NOT EXISTS `smartcare_db` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- CREATE DATABASE IF NOT EXISTS `smartcare_db` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `smartcare_db`;
 
 -- 1. Users Table
@@ -36,8 +36,39 @@ CREATE TABLE IF NOT EXISTS `appointments` (
     `date` DATE NOT NULL,
     `time_slot` VARCHAR(50) NOT NULL,
     `status` ENUM('pending', 'confirmed', 'completed', 'cancelled') NOT NULL DEFAULT 'pending',
+    `payment_status` ENUM('pending', 'paid') NOT NULL DEFAULT 'pending',
+    `trx_id` VARCHAR(255) DEFAULT NULL,
     `meeting_link` VARCHAR(255) DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT `fk_appointments_patient` FOREIGN KEY (`patient_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT `fk_appointments_doctor` FOREIGN KEY (`doctor_id`) REFERENCES `doctors` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. Prescriptions Table
+-- Stores e-prescriptions issued by doctors for completed appointments
+CREATE TABLE IF NOT EXISTS `prescriptions` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `appointment_id` INT NOT NULL,
+    `doctor_id` INT NOT NULL,
+    `patient_id` INT NOT NULL,
+    `diagnosis` TEXT NOT NULL,
+    `medicines` TEXT NOT NULL,
+    `instructions` TEXT DEFAULT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT `fk_prescriptions_appointment` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_prescriptions_doctor` FOREIGN KEY (`doctor_id`) REFERENCES `doctors` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_prescriptions_patient` FOREIGN KEY (`patient_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 5. Notifications Table
+-- Stores in-app user notifications for appointment updates, meeting links, and alerts
+CREATE TABLE IF NOT EXISTS `notifications` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT NOT NULL,
+    `message` TEXT NOT NULL,
+    `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+

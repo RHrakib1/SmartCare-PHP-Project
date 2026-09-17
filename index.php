@@ -318,7 +318,7 @@ while (count($featured_doctors) < 3) {
                         <div class="mt-4 pt-4 border-t border-slate-100 space-y-2 text-xs text-slate-600">
                             <div class="flex items-center justify-between">
                                 <span class="text-slate-400 font-medium">Consultation Fee:</span>
-                                <span class="font-bold text-slate-900">$<?= htmlspecialchars(number_format((float)$doc['fee'], 2)) ?></span>
+                                <span class="font-bold text-slate-900">৳<?= htmlspecialchars(number_format((float)$doc['fee'], 2)) ?></span>
                             </div>
                             <div class="flex items-start justify-between gap-2">
                                 <span class="text-slate-400 font-medium shrink-0">Available Days:</span>
