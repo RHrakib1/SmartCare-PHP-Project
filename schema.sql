@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS `doctors` (
     `phone` VARCHAR(20) NOT NULL,
     `fee` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     `available_days` VARCHAR(255) NOT NULL COMMENT 'Comma-separated days e.g., Monday,Wednesday,Friday',
+    `is_verified` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1 = Verified/Active, 0 = Pending Approval',
     CONSTRAINT `fk_doctors_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -70,5 +71,21 @@ CREATE TABLE IF NOT EXISTS `notifications` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6. Messages Table
+-- Stores real-time chat messages between patients and doctors for an appointment
+CREATE TABLE IF NOT EXISTS `messages` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `appointment_id` INT NOT NULL,
+    `sender_id` INT NOT NULL,
+    `receiver_id` INT NOT NULL,
+    `message` TEXT NOT NULL,
+    `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT `fk_messages_appointment` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_messages_sender` FOREIGN KEY (`sender_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_messages_receiver` FOREIGN KEY (`receiver_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 

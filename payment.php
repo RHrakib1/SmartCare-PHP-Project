@@ -84,7 +84,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Handle scenario if columns haven't been added yet to database
             if (strpos($e->getMessage(), "Unknown column") !== false) {
                 // Try dynamically adding columns if missing
-                @$conn->query("ALTER TABLE `appointments` ADD COLUMN `payment_status` ENUM('pending', 'paid') NOT NULL DEFAULT 'pending', ADD COLUMN `trx_id` VARCHAR(255) DEFAULT NULL;");
+                try {
+                    $conn->query("ALTER TABLE `appointments` ADD COLUMN `payment_status` ENUM('pending', 'paid') NOT NULL DEFAULT 'pending', ADD COLUMN `trx_id` VARCHAR(255) DEFAULT NULL;");
+                } catch (Throwable $ex) {
+                    // Ignore duplicate column exception if already present
+                }
                 
                 // Retry update
                 $update_stmt = $conn->prepare("UPDATE appointments SET payment_status = 'paid', trx_id = ? WHERE id = ? AND patient_id = ?");

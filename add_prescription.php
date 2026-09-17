@@ -63,19 +63,23 @@ if (!$appointment) {
 }
 
 // Check if prescriptions table exists, auto-create if missing
-@$conn->query("CREATE TABLE IF NOT EXISTS `prescriptions` (
-    `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `appointment_id` INT NOT NULL,
-    `doctor_id` INT NOT NULL,
-    `patient_id` INT NOT NULL,
-    `diagnosis` TEXT NOT NULL,
-    `medicines` TEXT NOT NULL,
-    `instructions` TEXT DEFAULT NULL,
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT `fk_prescriptions_appointment` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT `fk_prescriptions_doctor` FOREIGN KEY (`doctor_id`) REFERENCES `doctors` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT `fk_prescriptions_patient` FOREIGN KEY (`patient_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+try {
+    $conn->query("CREATE TABLE IF NOT EXISTS `prescriptions` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `appointment_id` INT NOT NULL,
+        `doctor_id` INT NOT NULL,
+        `patient_id` INT NOT NULL,
+        `diagnosis` TEXT NOT NULL,
+        `medicines` TEXT NOT NULL,
+        `instructions` TEXT DEFAULT NULL,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT `fk_prescriptions_appointment` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT `fk_prescriptions_doctor` FOREIGN KEY (`doctor_id`) REFERENCES `doctors` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT `fk_prescriptions_patient` FOREIGN KEY (`patient_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+} catch (Throwable $e) {
+    // Table already exists
+}
 
 // Check if prescription already exists for this appointment
 $existing_rx = null;

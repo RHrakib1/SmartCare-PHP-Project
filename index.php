@@ -19,12 +19,20 @@ if (empty($specialties)) {
     $specialties = ['Cardiology', 'Dermatology', 'General Medicine', 'Neurology', 'Orthopedics', 'Pediatrics'];
 }
 
-// Fetch top 3 featured doctors from database
+// Ensure column exists safely
+try {
+    $conn->query("ALTER TABLE doctors ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1;");
+} catch (Throwable $e) {
+    // Column already exists or table schema pre-configured
+}
+
+// Fetch top 3 verified featured doctors from database
 $featured_doctors = [];
 $doc_query = $conn->query("
     SELECT d.id as doctor_id, u.name as doctor_name, u.email, d.specialty, d.phone, d.fee, d.available_days 
     FROM doctors d 
     JOIN users u ON d.user_id = u.id 
+    WHERE COALESCE(d.is_verified, 1) = 1
     ORDER BY d.id ASC 
     LIMIT 3
 ");

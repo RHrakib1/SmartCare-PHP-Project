@@ -93,14 +93,18 @@ $unread_count = 0;
 
 if ($is_logged_in && isset($conn)) {
     // Ensure notifications table exists
-    @$conn->query("CREATE TABLE IF NOT EXISTS `notifications` (
-        `id` INT AUTO_INCREMENT PRIMARY KEY,
-        `user_id` INT NOT NULL,
-        `message` TEXT NOT NULL,
-        `is_read` TINYINT(1) NOT NULL DEFAULT 0,
-        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+    try {
+        $conn->query("CREATE TABLE IF NOT EXISTS `notifications` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `user_id` INT NOT NULL,
+            `message` TEXT NOT NULL,
+            `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+    } catch (Throwable $e) {
+        // Table already exists or foreign key constraint exists
+    }
 
     $user_id = $_SESSION['user_id'];
 

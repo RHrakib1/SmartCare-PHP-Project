@@ -73,7 +73,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             $patient_name = $_SESSION['user_name'] ?? 'A patient';
                             $notif_msg = "New appointment booking (#{$new_app_id}) from {$patient_name} for {$date} at {$time_slot}.";
 
-                            @$conn->query("CREATE TABLE IF NOT EXISTS `notifications` (`id` INT AUTO_INCREMENT PRIMARY KEY, `user_id` INT NOT NULL, `message` TEXT NOT NULL, `is_read` TINYINT(1) NOT NULL DEFAULT 0, `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+                            try {
+                                $conn->query("CREATE TABLE IF NOT EXISTS `notifications` (`id` INT AUTO_INCREMENT PRIMARY KEY, `user_id` INT NOT NULL, `message` TEXT NOT NULL, `is_read` TINYINT(1) NOT NULL DEFAULT 0, `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+                            } catch (Throwable $e) {
+                                // Table already exists
+                            }
 
                             $notif_stmt = $conn->prepare("INSERT INTO notifications (user_id, message) VALUES (?, ?)");
                             $notif_stmt->bind_param("is", $doctor_user_id, $notif_msg);
@@ -95,11 +99,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $search_q = trim($_GET['q'] ?? '');
 $search_spec = trim($_GET['specialty'] ?? '');
 
-// Fetch doctors
+// Ensure column exists safely
+try {
+    $conn->query("ALTER TABLE doctors ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1;");
+} catch (Throwable $e) {
+    // Column already exists
+}
+
+// Fetch verified doctors only
 $sql = "SELECT d.id as doctor_id, u.name as doctor_name, u.email, d.specialty, d.phone, d.fee, d.available_days 
         FROM doctors d 
         JOIN users u ON d.user_id = u.id 
-        WHERE 1=1";
+        WHERE COALESCE(d.is_verified, 1) = 1";
 
 $params = [];
 $types = "";
